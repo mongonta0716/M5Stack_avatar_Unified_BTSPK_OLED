@@ -2,6 +2,30 @@
 
 #include <Arduino.h>
 
+#if defined(ARDUINO_M5STACK_Core2)
+  // M5Stack Core2用のサーボの設定
+  // Port.A X:G32, Y:G33
+  // Port.C X:G13, Y:G14
+  // スタックチャン基板 X:G27, Y:G19
+  #define SERVO_PIN_X 13
+  #define SERVO_PIN_Y 14
+#elif defined( ARDUINO_M5STACK_FIRE )
+  // M5Stack Fireの場合はPort.A(X:G22, Y:G21)のみです。
+  // I2Cと同時利用は不可
+  #define SERVO_PIN_X 22
+  #define SERVO_PIN_Y 21
+#elif defined( ARDUINO_M5Stack_Core_ESP32 )
+  // M5Stack Basic/Gray/Go用の設定
+  // Port.A X:G22, Y:G21
+  // Port.C X:G16, Y:G17
+  // スタックチャン基板 X:G5, Y:G2
+  #define SERVO_PIN_X 16
+  #define SERVO_PIN_Y 17
+#endif
+
+#include <driver/adc.h>
+#include <ServoEasing.hpp>
+
 //// If you use SD card, write this.
 //#include <SD.h>
 //
@@ -16,6 +40,21 @@ M5UnitOLED oled;
 int16_t lipsync_level = 0;
 
 #include "Avatar.h"
+
+#define START_DEGREE_VALUE_X 90
+#define START_DEGREE_VALUE_Y 90
+int servo_offset_x = -10; // X軸サーボのオフセット（90°からの+-で設定）
+int servo_offset_y = 0;  // Y軸サーボのオフセット（90°からの+-で設定）
+float mouth_ratio = 0.0f;
+ServoEasing servo_x;
+ServoEasing servo_y;
+static long interval_min = 1000;
+static long interval_max = 5000;
+static long move_time_min = 500;
+static long move_time_max = 1000;
+static long sing_interval_min = 1000;
+static long sing_interval_max = 2000; 
+
 
 using namespace m5avatar;
 
@@ -209,6 +248,76 @@ static uint16_t prev_y[(FFT_SIZE/2)+1];
 static uint16_t peak_y[(FFT_SIZE/2)+1];
 static int header_height = 0;
 
+void moveX(int x, uint32_t millis_for_move = 0) {
+  if (millis_for_move == 0) {
+    servo_x.easeTo(x + servo_offset_x);
+  } else {
+    servo_x.easeToD(x + servo_offset_x, millis_for_move);
+  }
+}
+
+void moveY(int y, uint32_t millis_for_move = 0) {
+  if (millis_for_move == 0) {
+    servo_y.easeTo(y + servo_offset_y);
+  } else {
+    servo_y.easeToD(y + servo_offset_y, millis_for_move);
+  }
+}
+
+void moveXY(int x, int y, uint32_t millis_for_move = 0) {
+  if (millis_for_move == 0) {
+    servo_x.setEaseTo(x + servo_offset_x);
+    servo_y.setEaseTo(y + servo_offset_y);
+  } else {
+    servo_x.setEaseToD(x + servo_offset_x, millis_for_move);
+    servo_y.setEaseToD(y + servo_offset_y, millis_for_move);
+  }
+  // サーボが停止するまでウェイトします。
+  synchronizeAllServosStartAndWaitForAllServosToStop();
+}
+
+void servoLoop(void *args) {
+  long move_time = 0;
+  long interval_time = 0;
+  long move_x = 0;
+  long move_y = 0;
+  float gaze_x = 0.0f;
+  float gaze_y = 0.0f;
+  bool sing_mode = false;
+  for (;;) {
+    if (mouth_ratio == 0.0f) {
+      // 待機時の動き
+      interval_time = random(interval_min, interval_max);
+      move_time = random(move_time_min, move_time_max);
+      sing_mode = false;
+
+    } else {
+      // 音楽が流れているときの動き
+      interval_time = 1;
+      move_time = random(sing_interval_min, sing_interval_max);
+      sing_mode = true;
+    } 
+    avatar.getGaze(&gaze_y, &gaze_x);
+    
+//    Serial.printf("x:%f:y:%f\n", gaze_x, gaze_y);
+    // X軸は90°から+-で左右にスイング
+    if (gaze_x < 0) {
+      move_x = START_DEGREE_VALUE_X - mouth_ratio * 15 + (int)(15.0 * gaze_x);
+    } else {
+      move_x = START_DEGREE_VALUE_X + mouth_ratio * 15 + (int)(15.0 * gaze_x);
+    }
+    // Y軸は90°から上にスイング（最大35°）
+    move_y = START_DEGREE_VALUE_Y - mouth_ratio * 15 - abs(20.0 * gaze_y);
+    moveXY(move_x, move_y, move_time);
+    if (sing_mode) {
+      // 歌っているときはうなずく
+      moveXY(move_x, move_y + 10, 400);
+    }
+    vTaskDelay(interval_time/portTICK_PERIOD_MS);
+
+  }
+}
+
 
 void lipSync(void *args)
 {
@@ -220,16 +329,18 @@ void lipSync(void *args)
     //int level = a2dp_sink.audio_level;
     //printf("data=%d\n\r",lipsync_level);
     lipsync_level = abs(lipsync_level);
-    if(lipsync_level > 26)
+    if(lipsync_level > 32)
     {
-      lipsync_level = 26;
+      lipsync_level = 32;
 //      avatar->setExpression(Expression::Happy);
     }
 //    else
 //    {
 //      avatar->setExpression(Expression::Neutral);
 //    }
-    float open = (float)lipsync_level/26.0;
+    float open = (float)lipsync_level/20.0;
+    mouth_ratio = open;
+    if (mouth_ratio > 1.0f) mouth_ratio = 1.0f;
     avatar->setMouthOpenRatio(open);
     delay(50);
   }
@@ -273,6 +384,20 @@ void setup()
   oled.fillRect(0, 8, M5.Display.width(), 3, TFT_BLACK);
 
   M5.Speaker.begin();
+  if (servo_x.attach(SERVO_PIN_X, 
+                     START_DEGREE_VALUE_X + servo_offset_x,
+                     DEFAULT_MICROSECONDS_FOR_0_DEGREE,
+                     DEFAULT_MICROSECONDS_FOR_180_DEGREE)) {
+    Serial.print("Error attaching servo x");
+  }
+  if (servo_y.attach(SERVO_PIN_Y,
+                     START_DEGREE_VALUE_Y + servo_offset_y,
+                     DEFAULT_MICROSECONDS_FOR_0_DEGREE,
+                     DEFAULT_MICROSECONDS_FOR_180_DEGREE)) {
+    Serial.print("Error attaching servo y");
+  }
+  servo_x.setEasingType(EASE_QUADRATIC_IN_OUT);
+  servo_y.setEasingType(EASE_QUADRATIC_IN_OUT);
 
   a2dp_sink.start(bt_device_name, false);
 
@@ -285,6 +410,7 @@ void setup()
   }
   avatar.init(); // start drawing
   avatar.addTask(lipSync, "lipSync");
+  avatar.addTask(servoLoop, "servoLoop");
 }
 void loop(void)
 {
