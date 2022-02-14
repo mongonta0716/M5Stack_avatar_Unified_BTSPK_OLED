@@ -220,16 +220,16 @@ void lipSync(void *args)
     //int level = a2dp_sink.audio_level;
     //printf("data=%d\n\r",lipsync_level);
     lipsync_level = abs(lipsync_level);
-    if(lipsync_level > 32)
+    if(lipsync_level > 26)
     {
-      lipsync_level = 32;
+      lipsync_level = 26;
 //      avatar->setExpression(Expression::Happy);
     }
 //    else
 //    {
 //      avatar->setExpression(Expression::Neutral);
 //    }
-    float open = (float)lipsync_level/32.0;
+    float open = (float)lipsync_level/26.0;
     avatar->setMouthOpenRatio(open);
     delay(50);
   }
@@ -407,7 +407,7 @@ void loop(void)
         int32_t f = f1 * fft_height;
         int y = dsp_height - std::min(fft_height, f >> 19);
         //Serial.printf("f:%d, f1:%d, x:%d, xe: %d, y:%d\n", f >> 19, f1, x, xe, y);
-        if (x > 10; x < 26) { // 0〜31の範囲でlipsyncでピックアップしたい音域を選びます。
+        if (x > 5 and x < 32) { // 0〜31の範囲でlipsyncでピックアップしたい音域を選びます。
           lipsync_temp = std::max(lipsync_temp, f >> 19); // 指定した範囲で最も高い音量を設定。
         }
         int py = prev_y[x];
