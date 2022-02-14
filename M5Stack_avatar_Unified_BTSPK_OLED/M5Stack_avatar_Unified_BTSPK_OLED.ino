@@ -13,6 +13,8 @@
 #include <M5UnitOLED.h>
 M5UnitOLED oled;
 
+int16_t lipsync_level = 0;
+
 #include "Avatar.h"
 
 using namespace m5avatar;
@@ -215,19 +217,19 @@ void lipSync(void *args)
   Avatar *avatar = ctx->getAvatar();
    for (;;)
   {
-    int level = a2dp_sink.audio_level;
-//    printf("data=%d\n\r",level);
-    level = abs(level);
-    if(level > 2000)
+    //int level = a2dp_sink.audio_level;
+    printf("data=%d\n\r",lipsync_level);
+    lipsync_level = abs(lipsync_level);
+    if(lipsync_level > 10000)
     {
-      level = 2000;
+      lipsync_level = 10000;
 //      avatar->setExpression(Expression::Happy);
     }
 //    else
 //    {
 //      avatar->setExpression(Expression::Neutral);
 //    }
-    float open = (float)level/2000.0;
+    float open = (float)lipsync_level/10000.0;
     avatar->setMouthOpenRatio(open);
     delay(50);
   }
@@ -358,7 +360,7 @@ void loop(void)
     if (data)
     {
       fft.exec(data);
-
+      lipsync_level = 0;
       uint16_t level[2] = { 0, 0 };
       for (int i = 0; i < 512; i += 16)
       {
@@ -366,6 +368,12 @@ void loop(void)
         if (level[0] < lv) { level[0] = lv; }
         lv = abs(data[i+1]);
         if (level[1] < lv) { level[1] = lv; }
+        if ( i < 48 and i < 256) {
+          if (lipsync_level < lv) {
+            lipsync_level = lv;
+          }
+          
+        }
       }
       for (int i = 0; i < 2; ++i)
       {
