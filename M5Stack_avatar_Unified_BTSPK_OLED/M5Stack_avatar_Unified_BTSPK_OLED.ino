@@ -218,18 +218,18 @@ void lipSync(void *args)
    for (;;)
   {
     //int level = a2dp_sink.audio_level;
-    printf("data=%d\n\r",lipsync_level);
+    //printf("data=%d\n\r",lipsync_level);
     lipsync_level = abs(lipsync_level);
-    if(lipsync_level > 10000)
+    if(lipsync_level > 32)
     {
-      lipsync_level = 10000;
+      lipsync_level = 32;
 //      avatar->setExpression(Expression::Happy);
     }
 //    else
 //    {
 //      avatar->setExpression(Expression::Neutral);
 //    }
-    float open = (float)lipsync_level/10000.0;
+    float open = (float)lipsync_level/32.0;
     avatar->setMouthOpenRatio(open);
     delay(50);
   }
@@ -360,7 +360,7 @@ void loop(void)
     if (data)
     {
       fft.exec(data);
-      lipsync_level = 0;
+      //lipsync_level = 0;
       uint16_t level[2] = { 0, 0 };
       for (int i = 0; i < 512; i += 16)
       {
@@ -368,12 +368,6 @@ void loop(void)
         if (level[0] < lv) { level[0] = lv; }
         lv = abs(data[i+1]);
         if (level[1] < lv) { level[1] = lv; }
-        if ( i < 48 and i < 256) {
-          if (lipsync_level < lv) {
-            lipsync_level = lv;
-          }
-          
-        }
       }
       for (int i = 0; i < 2; ++i)
       {
@@ -406,10 +400,16 @@ void loop(void)
 
       int xe = oled.width() >> 2;
       if (xe > (FFT_SIZE/2)+1) { xe = (FFT_SIZE/2)+1; }
+      int32_t lipsync_temp = 0;
       for (int x = 0; x < xe; ++x)
       {
-        int32_t f = fft.get(x) * fft_height;
+        int32_t f1 = fft.get(x);
+        int32_t f = f1 * fft_height;
         int y = dsp_height - std::min(fft_height, f >> 19);
+        //Serial.printf("f:%d, f1:%d, x:%d, xe: %d, y:%d\n", f >> 19, f1, x, xe, y);
+        if (x > 10; x < 26) { // 0〜31の範囲でlipsyncでピックアップしたい音域を選びます。
+          lipsync_temp = std::max(lipsync_temp, f >> 19); // 指定した範囲で最も高い音量を設定。
+        }
         int py = prev_y[x];
         if (y != py)
         {
@@ -431,6 +431,7 @@ void loop(void)
           oled.writeFastHLine(x*4, py, 3, TFT_WHITE);
         }
       }
+      lipsync_level = lipsync_temp; // リップシンクを設定
       oled.display();
     }
   }
